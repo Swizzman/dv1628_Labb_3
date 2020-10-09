@@ -34,7 +34,7 @@ private:
     Disk disk;
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE / 2];
-    dir_entry* entries;
+    dir_entry *entries;
     int nrOfEntries;
     int capacity;
 
@@ -42,9 +42,8 @@ private:
 
     void expand();
     void updateFat();
-    int fileExists(std::string filename)const;
-
-    void write(int blocksToWrite, std::vector<std::string>& data);
+    int fileExists(std::string filename) const;
+    void write(int blocksToWrite, std::vector<std::string> &data);
 
 public:
     FS();

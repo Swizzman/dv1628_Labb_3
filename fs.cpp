@@ -4,6 +4,7 @@
 FS::FS()
     : nrOfEntries(0), capacity(10)
 {
+    format();
     std::cout << "FS::FS()... Creating file system\n";
     entries = new dir_entry[capacity];
 
@@ -48,7 +49,7 @@ void FS::expand()
     {
         temp[i] = this->entries[i];
     }
-    delete entries;
+    delete[] entries;
     entries = temp;
 }
 
@@ -113,6 +114,7 @@ int FS::format()
     }
 
     delete[] entries;
+    entries = new dir_entry[capacity];
     nrOfEntries = 0;
     //updateFat();
     std::cout << "FS::format()\n";
@@ -185,35 +187,13 @@ int FS::create(std::string filepath)
         }
 
         write(noBlocks, writeData);
-
-        //     for (i; i < (BLOCK_SIZE / 2) && !inserted; ++i)
-        //     {
-        //         if (fat[i] == FAT_FREE)
-        //         {
-        //             if (entries[nrOfEntries].first_blk == FAT_FREE)
-        //             {
-        //                 entries[nrOfEntries].first_blk = i;
-        //             }
-        //             if (previous != -1)
-        //             {
-        //                 fat[previous] = i;
-        //             }
-        //             inserted = true;
-        //             fat[i] = EOF;
-        //             previous = i;
-        //             i--;
-        //         }
-        //     }
-        //     disk.write(i, (uint8_t *)writeData.c_str());
-
-        //     inserted = false;
-        // }
         nrOfEntries++;
+
         for (int j = 2; j < 12; ++j)
         {
             std::cout << "Fat: " << fat[j] << std::endl;
         }
-        updateFat();
+        //updateFat();
     }
     return 0;
 }
@@ -225,22 +205,26 @@ int FS::cat(std::string filepath)
 
     bool found = false;
     int iterator = 0;
-    char *toRead = new char[BLOCK_SIZE];
+    char *buffer = new char[BLOCK_SIZE];
+    int index = fileExists(filepath);
 
-    for (int i = 0; i < nrOfEntries && !found; ++i)
+    if (index != EOF)
     {
-        if (filepath == entries[i].file_name)
+
+        iterator = entries[index].first_blk;
+        while (iterator != EOF)
         {
-            iterator = entries[i].first_blk;
-            while (iterator != EOF)
-            {
-                disk.read(iterator, (uint8_t *)toRead);
-                iterator = fat[iterator];
-                std::cout << toRead;
-            }
-            found = true;
+            disk.read(iterator, (uint8_t *)buffer);
+            iterator = fat[iterator];
+            std::cout << buffer;
         }
+        found = true;
     }
+    else
+    {
+        std::cout << "'" << filepath << "' does not exist!" << std::endl;
+    }
+
     return 0;
 }
 
@@ -290,33 +274,13 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
             buffer = new char[BLOCK_SIZE];
             disk.read(iterator, (uint8_t *)buffer);
             iterator = fat[iterator];
-
-            // for (i; i < (BLOCK_SIZE / 2) && !inserted; ++i)
-            // {
-            //     if (fat[i] == FAT_FREE)
-            //     {
-            //         if (entries[nrOfEntries].first_blk == FAT_FREE)
-            //         {
-            //             entries[nrOfEntries].first_blk = i;
-            //         }
-            //         if (previous != -1)
-            //         {
-            //             fat[previous] = i;
-            //         }
-            //         inserted = true;
-            //         fat[i] = EOF;
-            //         previous = i;
-            //         i--;
-            //     }
-            // }
-            // disk.write(i, (uint8_t *)buffer);
             data.push_back(buffer);
             delete[] buffer;
             inserted = false;
         }
         write(noBlocks, data);
-        //updateFat()
         nrOfEntries++;
+        //updateFat()
     }
 
     return 0;
@@ -355,18 +319,22 @@ int FS::rm(std::string filepath)
         while (iterator != EOF)
         {
             iterator = fat[iterator];
-            fat[previous] = 0;
+            fat[previous] = FAT_FREE;
             previous = iterator;
         }
-        //We are at EOF
-        fat[iterator] = 0;
 
-        for(int i = index; i < nrOfEntries; ++i)
+        //fat[iterator] = FAT_FREE;
+        for (int i = index; i < nrOfEntries; ++i)
         {
             entries[i] = entries[i + 1];
         }
         nrOfEntries--;
     }
+    else
+    {
+        std::cout << "'" << filepath << "' does not exist!" << std::endl;
+    }
+
     return 0;
 }
 
@@ -375,6 +343,101 @@ int FS::rm(std::string filepath)
 int FS::append(std::string filepath1, std::string filepath2)
 {
     std::cout << "FS::append(" << filepath1 << "," << filepath2 << ")\n";
+
+    int index1 = fileExists(filepath1);
+    int index2 = fileExists(filepath2);
+    int appendIndex = -1;
+
+    if (index1 != EOF && index2 != EOF)
+    {
+        std::string line;
+        char *buffer = new char[BLOCK_SIZE];
+        int iterator1 = entries[index1].first_blk;
+        int iterator2 = entries[index2].first_blk;
+
+        while (iterator2 != EOF)
+        {
+            //Only increment appendIndex if we're not at EOF, so that we can start append other files FAT-indexes.
+            if (iterator2 != EOF)
+            {
+                appendIndex = iterator2;
+            }
+            iterator2 = fat[iterator2];
+        }
+        disk.read(appendIndex, (uint8_t *)buffer);
+        line.append(buffer);
+        while (iterator1 != EOF)
+        {
+            disk.read(iterator1, (uint8_t *)buffer);
+            line.append(buffer);
+            iterator1 = fat[iterator1];
+        }
+
+        uint32_t noBlocks = (line.length() / BLOCK_SIZE) + 1;
+        uint32_t lastBlock = (line.length() % BLOCK_SIZE);
+        std::vector<std::string> data;
+        for (int i = 0; i < noBlocks; ++i)
+        {
+            if (i == noBlocks - 1)
+            {
+                data.push_back(line.substr((i * BLOCK_SIZE), lastBlock));
+            }
+            else
+            {
+                data.push_back(line.substr((i * BLOCK_SIZE), BLOCK_SIZE));
+            }
+        }
+        disk.write(appendIndex, (uint8_t *)data[0].c_str());
+        data.erase(data.begin());
+
+        entries[index2].size += entries[index1].size;
+        int count = 0;
+        int previous = -1;
+        int i = ROOT_BLOCK + 2;
+        bool inserted = false;
+        if (data.size() > 0)
+        {
+            for (int j = 0; j < data.size(); ++j)
+            {
+                for (i; i < (BLOCK_SIZE / 2) && !inserted; ++i)
+                {
+                    if (fat[i] == FAT_FREE)
+                    {
+                        if(fat[appendIndex] == EOF)
+                        {
+                            fat[appendIndex] = i;
+                        }
+                        if (previous != -1)
+                        {
+                            fat[previous] = i;
+                        }
+                        inserted = true;
+                        fat[i] = EOF;
+                        previous = i;
+                        i--;
+                    }
+                }
+                inserted = false;
+                disk.write(i, (uint8_t*)data[j].c_str());
+            }
+        }
+    }
+    else
+    {
+        if (index1 == EOF && index2 == EOF)
+        {
+            std::cout << "'" << filepath1 << "' and '" << filepath2 << "' does not exist!" << std::endl;
+        }
+        else if (index1 == EOF && index2 != EOF)
+        {
+            std::cout << "'" << filepath1 << "' does not exist!" << std::endl;
+        }
+        else if (index1 != EOF && index2 == EOF)
+        {
+            std::cout << "'" << filepath2 << "' does not exist!" << std::endl;
+        }
+    }
+
     return 0;
 }
 
