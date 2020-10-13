@@ -4,66 +4,90 @@
 FS::FS()
 {
     std::cout << "FS::FS()... Creating file system\n";
-    dirs.capacity = 10;
-    entries = new dir_entry[dirs.capacity];
-    dirs.nrOfEntries = 0;
+    capacity = 10;
+    entries = new dir_entry[capacity];
+    nrOfEntries = 0;
     format();
+    helper = new dir_helper[MAX_DIRECTORIES];
+    helper[0].dirs = new dir_entry *[MAX_DIRECTORIES];
+    helper[1].dirs = new dir_entry *[MAX_DIRECTORIES];
+    nrOfDirs = 0;
 
-    // Initializing working directory
-    entries[dirs.nrOfEntries].size = 0;
-    strcpy(entries[dirs.nrOfEntries].file_name, "~");
-    entries[dirs.nrOfEntries].first_blk = ROOT_BLOCK;
-    entries[dirs.nrOfEntries].type = TYPE_DIR;
-    entries[dirs.nrOfEntries].nrOfSubDir = 1;
-    dirs.nrOfEntries++;
-    workingDir = &entries[0];
+    //Creating metadata for Root-directory
+    helper[nrOfDirs].dirs[ROOT_BLOCK] = new dir_entry;
+    strcpy(helper[nrOfDirs].dirs[ROOT_BLOCK]->file_name, "~");
+    helper[nrOfDirs].dirs[ROOT_BLOCK]->first_blk = ROOT_BLOCK;
+    helper[nrOfDirs].dirs[ROOT_BLOCK]->size = BLOCK_SIZE;
+    helper[nrOfDirs].dirs[ROOT_BLOCK]->type = TYPE_DIR;
+    helper[nrOfDirs].dirs[ROOT_BLOCK]->access_rights = READ | WRITE | EXECUTE;
+    helper[nrOfDirs].dirs[ROOT_BLOCK + 1] = helper[nrOfDirs].dirs[ROOT_BLOCK];
+
+    entries[nrOfEntries++] = *helper[nrOfDirs].dirs[ROOT_BLOCK];
+
+    workingDir = &helper[nrOfDirs];
+    nrOfDirs++;
     workingDirAsString = "~";
 
-    fat[3] = 4;
-    fat[4] = 5;
-    fat[5] = EOF;
+    //Creating meta-data for a new sub-directory
+    helper[nrOfDirs].dirs[ROOT_BLOCK] = new dir_entry;
+    strcpy(helper[nrOfDirs].dirs[0]->file_name, "sub");
+    helper[nrOfDirs].dirs[0]->first_blk = 2;
+    helper[nrOfDirs].dirs[1] = helper[nrOfDirs].dirs[0];
+    helper[nrOfDirs].dirs[0]->type = TYPE_DIR;
+    helper[nrOfDirs].dirs[0]->size = BLOCK_SIZE;
+    helper[nrOfDirs].dirs[0]->access_rights = READ | WRITE | EXECUTE;
 
-    strcpy(entries[dirs.nrOfEntries].file_name, "hello");
-    entries[dirs.nrOfEntries].first_blk = 3;
-    entries[dirs.nrOfEntries].size = 5000;
-    entries[dirs.nrOfEntries].type = TYPE_FILE;
-    entries[dirs.nrOfEntries].access_rights = WRITE | READ;
-    entries[dirs.nrOfEntries].nrOfSubDir = 1;
-    disk.write(3, (uint8_t *)&entries[dirs.nrOfEntries]);
-    dirs.nrOfEntries++;
+    // Create a reference of the new sub-dir to ROOT
+    helper[ROOT_BLOCK].dirs[helper[ROOT_BLOCK].nrOfSubDir++] = helper[nrOfDirs].dirs[0];
+
+    entries[nrOfEntries++] = *helper[nrOfDirs].dirs[ROOT_BLOCK];
+    nrOfDirs++;
+
+    fat[3] = 4;
+    fat[4] = EOF;
+
+    strcpy(entries[nrOfEntries].file_name, "hello");
+    entries[nrOfEntries].first_blk = 3;
+    entries[nrOfEntries].size = 5000;
+    entries[nrOfEntries].type = TYPE_FILE;
+    entries[nrOfEntries].access_rights = WRITE | READ;
+    helper[0].dirs[helper[0].nrOfSubDir] = &entries[nrOfEntries];
+    nrOfEntries++;
 
     char *buffer;
     buffer = new char[BLOCK_SIZE];
 
     strcpy(buffer, "hellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohello\n");
 
-    disk.write(4, (uint8_t *)buffer);
+    disk.write(3, (uint8_t *)buffer);
     strcpy(buffer, "rofl\n");
-    disk.write(5, (uint8_t *)buffer);
+    disk.write(4, (uint8_t *)buffer);
     delete[] buffer;
-    entries[0].nrOfSubDir = 2;
-    entries[0].subDir[1] = std::make_pair(3, "hello");
-    // char *newBuffer = new char[4096 * 2];
-
-    // disk.read(2, (uint8_t *)newBuffer);
-    // disk.read(3, (uint8_t *)newBuffer);
-
-    // std::cout << newBuffer << std::endl;
-
-    //disk.read(1, (uint8_t *)&fat);
 }
 
 FS::~FS()
 {
+    for (int i = 1; i < nrOfDirs; ++i)
+    {
+        for (int j = 2; j < helper[i].nrOfSubDir; j++)
+        {
+            delete helper[i].dirs[j];
+        }
+        delete[] helper[i].dirs;
+    }
+    delete helper[ROOT_BLOCK].dirs[0];
+    delete[] helper[ROOT_BLOCK].dirs;
+    delete[] helper;
+
     delete[] entries;
 }
 
 void FS::expand()
 {
-    this->dirs.capacity += 10;
-    dir_entry *temp = new dir_entry[this->dirs.capacity];
+    this->capacity += 10;
+    dir_entry *temp = new dir_entry[this->capacity];
 
-    for (int i = 0; i < this->dirs.nrOfEntries; ++i)
+    for (int i = 0; i < this->nrOfEntries; ++i)
     {
         temp[i] = this->entries[i];
     }
@@ -80,7 +104,7 @@ int FS::fileExists(std::string filename, uint8_t type) const
 {
     bool found = false;
     int index = -1;
-    for (int i = 0; i < dirs.nrOfEntries && !found; ++i)
+    for (int i = 0; i < nrOfEntries && !found; ++i)
     {
         if (filename == entries[i].file_name && type == entries[i].type)
         {
@@ -91,23 +115,21 @@ int FS::fileExists(std::string filename, uint8_t type) const
     return index;
 }
 
-void FS::write(int blocksToWrite, std::vector<std::string> &data)
+void FS::writeFile(int blocksToWrite, std::vector<std::string> &data)
 {
     int i = DIR_BLOCK + 1;
     bool inserted = false;
     int previous = -1;
 
-    for (int j = 0; j < blocksToWrite + 1; ++j)
+    for (int j = 0; j < blocksToWrite; ++j)
     {
         for (i; i < (BLOCK_SIZE / 2) && !inserted; ++i)
         {
             if (fat[i] == FAT_FREE)
             {
-                if (entries[dirs.nrOfEntries].first_blk == FAT_FREE)
+                if (entries[nrOfEntries].first_blk == FAT_FREE)
                 {
-                    entries[dirs.nrOfEntries].first_blk = i;
-                    // IF SIZE PROBLEM OR ANYTHING, LOOK HERE, MOVE WRITE?
-                    disk.write(i, (uint8_t *)&entries[dirs.nrOfEntries]);
+                    entries[nrOfEntries].first_blk = i;
                 }
                 if (previous != -1)
                 {
@@ -119,11 +141,7 @@ void FS::write(int blocksToWrite, std::vector<std::string> &data)
                 i--;
             }
         }
-        // Do not write data when j == 0, because thats reserved for the struct, rest is data.
-        if (j != 0)
-        {
-            disk.write(i, (uint8_t *)data.at(j - 1).c_str());
-        }
+        disk.write(i, (uint8_t *)data.at(j).c_str());
         inserted = false;
     }
 }
@@ -131,7 +149,8 @@ void FS::write(int blocksToWrite, std::vector<std::string> &data)
 std::string FS::goToPath(std::string newPath)
 {
     std::string paths;
-    workingDir = &entries[0];
+    //Start at root
+    workingDir = &helper[ROOT_BLOCK];
     workingDirAsString = "~";
     bool found = false;
     for (int i = 0; i < newPath.size(); ++i)
@@ -142,15 +161,15 @@ std::string FS::goToPath(std::string newPath)
         }
         else
         {
-            for (int j = 1; j < workingDir->nrOfSubDir && !found; ++j)
+            for (int j = 2; j < workingDir->nrOfSubDir && !found; ++j)
             {
-                if (paths == workingDir->subDir[j].second)
+                if (paths == workingDir->dirs[j]->file_name)
                 {
-                    for (int k = 0; k < dirs.nrOfEntries && !found; ++k)
+                    for (int k = 0; k < nrOfDirs && !found; ++k)
                     {
-                        if (paths == entries[k].file_name)
+                        if (paths == helper[k].dirs[0]->file_name)
                         {
-                            workingDir = &entries[k];
+                            workingDir = &helper[k];
                             workingDirAsString.append("/" + paths);
                             found = true;
                             paths.clear();
@@ -158,8 +177,8 @@ std::string FS::goToPath(std::string newPath)
                     }
                 }
             }
-            found = false;
         }
+        found = false;
     }
     return paths;
 }
@@ -174,8 +193,8 @@ int FS::format()
     }
 
     delete[] entries;
-    entries = new dir_entry[dirs.capacity];
-    dirs.nrOfEntries = 0;
+    entries = new dir_entry[capacity];
+    nrOfEntries = 0;
 
     //updateFat();
     std::cout << "FS::format()\n";
@@ -191,8 +210,6 @@ int FS::create(std::string filepath)
     std::string data, diskData;
     bool done = false;
     std::string fileName = goToPath(filepath);
-    std::cout << "Creating file inside subdir: " << filepath << std::endl;
-    std::cout << "File name: " << fileName << std::endl;
 
     while (!done)
     {
@@ -217,16 +234,16 @@ int FS::create(std::string filepath)
         std::cout << "data size: " << diskData.size() << std::endl;
         uint16_t noBlocks = (diskData.length() / BLOCK_SIZE) + 1;
 
-        if (dirs.nrOfEntries >= dirs.capacity)
+        if (nrOfEntries >= capacity)
         {
             expand();
         }
 
-        entries[dirs.nrOfEntries].size = diskData.length();
-        entries[dirs.nrOfEntries].type = TYPE_FILE;
-        entries[dirs.nrOfEntries].first_blk = FAT_FREE;
-        strcpy(entries[dirs.nrOfEntries].file_name, fileName.c_str());
-        entries[dirs.nrOfEntries].access_rights = READ | WRITE;
+        entries[nrOfEntries].size = diskData.length();
+        entries[nrOfEntries].type = TYPE_FILE;
+        entries[nrOfEntries].first_blk = FAT_FREE;
+        strcpy(entries[nrOfEntries].file_name, fileName.c_str());
+        entries[nrOfEntries].access_rights = READ | WRITE;
 
         int i = DIR_BLOCK + 1;
         bool inserted = false;
@@ -246,11 +263,11 @@ int FS::create(std::string filepath)
             }
         }
 
-        write(noBlocks, dataVec);
-        workingDir->subDir[workingDir->nrOfSubDir++] = std::make_pair(entries[dirs.nrOfEntries].first_blk, fileName);
-        dirs.nrOfEntries++;
-        //Update the directoryinformation on disk
-        disk.write(DIR_BLOCK, (uint8_t *)entries);
+        writeFile(noBlocks, dataVec);
+        workingDir->dirs[workingDir->nrOfSubDir++] = &entries[nrOfEntries];
+        nrOfEntries++;
+        // //Update the directoryinformation on disk
+        // disk.write(DIR_BLOCK, (uint8_t *)entries);
 
         for (int j = 3; j < 12; ++j)
         {
@@ -269,12 +286,13 @@ int FS::cat(std::string filepath)
     bool found = false;
     int iterator = 0;
     char *buffer = new char[BLOCK_SIZE];
+    //NOT 100% FUNCTIONAL FIX TODAY
     std::string fileName = goToPath(filepath);
     int index = fileExists(fileName, TYPE_FILE);
 
     if (index != EOF)
     {
-        iterator = fat[entries[index].first_blk];
+        iterator = entries[index].first_blk;
         while (iterator != EOF)
         {
             disk.read(iterator, (uint8_t *)buffer);
@@ -298,7 +316,7 @@ int FS::ls()
 
     std::cout << "Filename:\t\tType:\t\tSize:\tStart:\t" << std::endl;
 
-    for (int i = 0; i < dirs.nrOfEntries; ++i)
+    for (int i = 0; i < nrOfEntries; ++i)
     {
         std::cout << entries[i].file_name << "\t\t\t";
         if (entries[i].type == TYPE_FILE)
@@ -324,14 +342,14 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
 
     if (index != -1)
     {
-        if (dirs.nrOfEntries >= dirs.capacity)
+        if (nrOfEntries >= capacity)
         {
             expand();
         }
-        strcpy(entries[dirs.nrOfEntries].file_name, destfilepath.c_str());
-        entries[dirs.nrOfEntries].access_rights = entries[index].access_rights;
-        entries[dirs.nrOfEntries].size = entries[index].size;
-        entries[dirs.nrOfEntries].type = entries[index].type;
+        strcpy(entries[nrOfEntries].file_name, destfilepath.c_str());
+        entries[nrOfEntries].access_rights = entries[index].access_rights;
+        entries[nrOfEntries].size = entries[index].size;
+        entries[nrOfEntries].type = entries[index].type;
 
         char *buffer;
         int iterator = entries[index].first_blk;
@@ -351,8 +369,8 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
             delete[] buffer;
             inserted = false;
         }
-        write(noBlocks, data);
-        dirs.nrOfEntries++;
+        writeFile(noBlocks, data);
+        nrOfEntries++;
         disk.write(DIR_BLOCK, (uint8_t *)entries);
         //updateFat()
     }
@@ -398,11 +416,11 @@ int FS::rm(std::string filepath)
         }
 
         //fat[iterator] = FAT_FREE;
-        for (int i = index; i < dirs.nrOfEntries; ++i)
+        for (int i = index; i < nrOfEntries; ++i)
         {
             entries[i] = entries[i + 1];
         }
-        dirs.nrOfEntries--;
+        nrOfEntries--;
         disk.write(DIR_BLOCK, (uint8_t *)entries);
     }
     else
@@ -533,18 +551,18 @@ int FS::mkdir(std::string dirpath)
         return -1;
     }
 
-    strcpy(entries[dirs.nrOfEntries].file_name, name.c_str());
-    entries[dirs.nrOfEntries].type = TYPE_DIR;
-    entries[dirs.nrOfEntries].access_rights = READ | WRITE;
-    entries[dirs.nrOfEntries].nrOfSubDir = 1;
-    entries[dirs.nrOfEntries].size = 0;
+    strcpy(entries[nrOfEntries].file_name, name.c_str());
+    entries[nrOfEntries].type = TYPE_DIR;
+    entries[nrOfEntries].access_rights = READ | WRITE;
+    // entries[nrOfEntries].nrOfSubDir = 1;
+    entries[nrOfEntries].size = 0;
 
     std::vector<std::string> temp;
 
-    write(0, temp);
-    workingDir->subDir[workingDir->nrOfSubDir] = make_pair(entries[dirs.nrOfEntries].first_blk, name);
+    //writeFile(0, temp);
+    // workingDir->subDir[workingDir->nrOfSubDir] = make_pair(entries[nrOfEntries].first_blk, name);
     workingDir->nrOfSubDir++;
-    dirs.nrOfEntries++;
+    nrOfEntries++;
     disk.write(DIR_BLOCK, (uint8_t *)entries);
 
     return 0;

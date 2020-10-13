@@ -14,6 +14,8 @@
 #define FAT_FREE 0
 #define FAT_EOF -1
 
+#define MAX_DIRECTORIES 64
+
 #define TYPE_FILE 0
 #define TYPE_DIR 1
 #define READ 0x04
@@ -22,23 +24,20 @@
 
 #define PARENT_DIR ".."
 
-
 struct dir_entry
 {
-    char file_name[56];     // name of the file / sub-directory
-    std::pair<int8_t, std::string> subDir[10]{std::make_pair(-1, "")}; // Array of indexes of subdirs to map to FAT.
-    uint8_t nrOfSubDir;
+    char file_name[56];                                                // name of the file / sub-directory
     uint16_t first_blk;    // index in the FAT for the first block of the file
     uint32_t size;         // size of the file in bytes
     uint8_t type;          // directory (1) or file (0)
     uint8_t access_rights; // read (0x04), write (0x02), execute (0x01)
-    uint8_t dirIndex;
 };
 
 struct dir_helper
 {
-    int nrOfEntries;
-    int capacity;
+    dir_entry** dirs;
+    //std::pair<int8_t, std::string> subDir[10]{std::make_pair(-1, "")};
+    uint8_t nrOfSubDir = 2;
 };
 
 class FS
@@ -47,15 +46,18 @@ private:
     Disk disk;
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE / 2];
-    dir_entry *workingDir;
+    dir_helper *workingDir;
     dir_entry *entries;
-    dir_helper dirs;
+    dir_helper* helper;
     std::string workingDirAsString;
+    int nrOfEntries;
+    int capacity;
+    int nrOfDirs;
 
     void expand();
     void updateFat();
     int fileExists(std::string filename, uint8_t type) const;
-    void write(int blocksToWrite, std::vector<std::string> &data);
+    void writeFile(int blocksToWrite, std::vector<std::string> &data);
     std::string goToPath(std::string newPath);
 
 public:
