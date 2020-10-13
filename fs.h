@@ -1,6 +1,6 @@
 #include <iostream>
 #include <cstdint>
-#include <queue>
+#include <vector>
 #include <stdio.h>
 #include <string.h>
 #include "disk.h"
@@ -10,6 +10,7 @@
 
 #define ROOT_BLOCK 0
 #define FAT_BLOCK 1
+#define DIR_BLOCK 2
 #define FAT_FREE 0
 #define FAT_EOF -1
 
@@ -19,13 +20,25 @@
 #define WRITE 0x02
 #define EXECUTE 0x01
 
+#define PARENT_DIR ".."
+
+
 struct dir_entry
 {
-    char file_name[56];    // name of the file / sub-directory
+    char file_name[56];     // name of the file / sub-directory
+    std::pair<int8_t, std::string> subDir[10]{std::make_pair(-1, "")}; // Array of indexes of subdirs to map to FAT.
+    uint8_t nrOfSubDir;
     uint16_t first_blk;    // index in the FAT for the first block of the file
     uint32_t size;         // size of the file in bytes
     uint8_t type;          // directory (1) or file (0)
     uint8_t access_rights; // read (0x04), write (0x02), execute (0x01)
+    uint8_t dirIndex;
+};
+
+struct dir_helper
+{
+    int nrOfEntries;
+    int capacity;
 };
 
 class FS
@@ -34,16 +47,16 @@ private:
     Disk disk;
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE / 2];
+    dir_entry *workingDir;
     dir_entry *entries;
-    int nrOfEntries;
-    int capacity;
-
-    std::queue<std::string> squeue;
+    dir_helper dirs;
+    std::string workingDirAsString;
 
     void expand();
     void updateFat();
-    int fileExists(std::string filename) const;
+    int fileExists(std::string filename, uint8_t type) const;
     void write(int blocksToWrite, std::vector<std::string> &data);
+    std::string goToPath(std::string newPath);
 
 public:
     FS();
