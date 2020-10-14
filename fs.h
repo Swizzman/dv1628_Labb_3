@@ -10,11 +10,13 @@
 
 #define ROOT_BLOCK 0
 #define FAT_BLOCK 1
-#define DIR_BLOCK 2
 #define FAT_FREE 0
 #define FAT_EOF -1
 
 #define MAX_DIRECTORIES 64
+#define ROOT_DIR 0
+#define ITSELF 0
+#define PARENT 1
 
 #define TYPE_FILE 0
 #define TYPE_DIR 1
@@ -26,7 +28,7 @@
 
 struct dir_entry
 {
-    char file_name[56];                                                // name of the file / sub-directory
+    char file_name[56];    // name of the file / sub-directory
     uint16_t first_blk;    // index in the FAT for the first block of the file
     uint32_t size;         // size of the file in bytes
     uint8_t type;          // directory (1) or file (0)
@@ -35,9 +37,9 @@ struct dir_entry
 
 struct dir_helper
 {
-    dir_entry** dirs;
+    dir_entry* dirs[MAX_DIRECTORIES];
     //std::pair<int8_t, std::string> subDir[10]{std::make_pair(-1, "")};
-    uint8_t nrOfSubDir = 2;
+    uint16_t nrOfSubDir = 2;
 };
 
 class FS
@@ -47,8 +49,7 @@ private:
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE / 2];
     dir_helper *workingDir;
-    dir_entry *entries;
-    dir_helper* helper;
+    dir_helper* catalogs;
     std::string workingDirAsString;
     int nrOfEntries;
     int capacity;
@@ -57,7 +58,9 @@ private:
     void expand();
     void updateFat();
     int fileExists(std::string filename, uint8_t type) const;
+    void writeDir(dir_helper* catalog);
     void writeFile(int blocksToWrite, std::vector<std::string> &data);
+    std::vector<std::string> readFile(int startBlock);
     std::string goToPath(std::string newPath);
 
 public:
@@ -73,6 +76,7 @@ public:
     // ls lists the content in the currect directory (files and sub-directories)
     int ls();
 
+    std::string getWorkingDirAsString()const;
     // cp <sourcefilepath> <destfilepath> makes an exact copy of the file
     // <sourcefilepath> to a new file <destfilepath>
     int cp(std::string sourcefilepath, std::string destfilepath);
