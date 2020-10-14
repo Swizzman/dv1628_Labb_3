@@ -224,7 +224,7 @@ int FS::create(std::string filepath)
     std::string fileName = goToPath(filepath);
     int index = fileExists(fileName, TYPE_FILE);
 
-    if(fileName == "~" || fileName.empty())
+    if (fileName == "~" || fileName.empty())
     {
         std::cout << fileName << ": Reserved name, aborting!" << std::endl;
     }
@@ -299,10 +299,6 @@ int FS::create(std::string filepath)
 int FS::cat(std::string filepath)
 {
     std::cout << "FS::cat(" << filepath << ")\n";
-
-    bool found = false;
-    int iterator = 0;
-    char *buffer = new char[BLOCK_SIZE];
     dir_helper *tempDir = workingDir;
     std::string stringDir = workingDirAsString;
     std::string fileName = goToPath(filepath);
@@ -313,14 +309,11 @@ int FS::cat(std::string filepath)
     }
     else if (index != EOF)
     {
-        iterator = workingDir->dirs[index]->first_blk;
-        while (iterator != EOF)
+        std::vector<std::string> vec = readFile(workingDir->dirs[index]->first_blk);
+        for (int i = 0; i < vec.size(); i++)
         {
-            disk.read(iterator, (uint8_t *)buffer);
-            iterator = fat[iterator];
-            std::cout << buffer;
+            std::cout << vec[i];
         }
-        found = true;
     }
     else
     {
@@ -373,7 +366,6 @@ std::vector<std::string> FS::readFile(int startBlock)
     int iterator = startBlock;
     char *buffer;
     std::vector<std::string> data;
-
     while (iterator != EOF)
     {
         buffer = new char[BLOCK_SIZE];
@@ -417,6 +409,8 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
         int noBlocks = (workingDir->dirs[index]->size / BLOCK_SIZE) + 1;
         std::vector<std::string> data = readFile(workingDir->dirs[index]->first_blk);
 
+        workingDirAsString = dirString;
+        workingDir = tempDir;
         goToPath(destfilepath.append("/"));
 
         workingDir->dirs[workingDir->nrOfSubDir] = copyEntry;
@@ -436,17 +430,45 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
 int FS::mv(std::string sourcepath, std::string destpath)
 {
     std::cout << "FS::mv(" << sourcepath << "," << destpath << ")\n";
-    int index = fileExists(sourcepath, TYPE_FILE);
+    dir_helper *tempDir = workingDir;
+    std::string dirString = workingDirAsString;
+    std::string fileName = goToPath(sourcepath);
+    std::string tempDirString2 = workingDirAsString;
+    dir_helper *tempDir2 = workingDir;
+    int index = fileExists(fileName, TYPE_FILE);
 
-    if (index != -1)
+    if (index == -2)
     {
-        // strcpy(entries[index].file_name, destpath.c_str());
+        std::cout << fileName << ": is a directory!" << std::endl;
+    }
+    else if (index == -1)
+    {
+        std::cout << fileName << ": No such file or directory!" << std::endl;
     }
     else
     {
-        std::cout << "That file does not exist!" << std::endl;
+        dir_entry *temp = workingDir->dirs[index];
+        workingDirAsString = dirString;
+        workingDir = tempDir;
+        fileName = goToPath(destpath);
+        if (workingDirAsString == tempDirString2)
+        {
+            std::cout << "Same directory, renaming\n";
+            strcpy(workingDir->dirs[index]->file_name, fileName.c_str());
+        }
+        else
+        {
+            goToPath(fileName.append("/"));
+            workingDir->dirs[workingDir->nrOfSubDir++] = tempDir2->dirs[index];
+            for (int i = index; i < tempDir2->nrOfSubDir; i++)
+            {
+                tempDir2->dirs[i] = tempDir2->dirs[i + 1];
+            }
+            tempDir2->nrOfSubDir--;
+        }
     }
-
+    workingDirAsString = dirString;
+    workingDir = tempDir;
     return 0;
 }
 
@@ -498,86 +520,110 @@ int FS::rm(std::string filepath)
 int FS::append(std::string filepath1, std::string filepath2)
 {
     std::cout << "FS::append(" << filepath1 << "," << filepath2 << ")\n";
-
-    int index1 = fileExists(filepath1, TYPE_FILE);
-    int index2 = fileExists(filepath2, TYPE_FILE);
+    dir_helper *tempDir = workingDir;
+    std::string dirString = workingDirAsString;
+    std::string fileName = goToPath(filepath2);
+    int index2 = fileExists(fileName, TYPE_FILE);
+    workingDir = tempDir;
+    workingDirAsString = dirString;
+    fileName = goToPath(filepath1);
+    int index1 = fileExists(fileName, TYPE_FILE);
     int appendIndex = -1;
 
     if (index1 != EOF && index2 != EOF)
     {
-        std::string line;
-        char *buffer = new char[BLOCK_SIZE];
-        // int iterator1 = entries[index1].first_blk;
-        // int iterator2 = entries[index2].first_blk;
-        int iterator1;
-        int iterator2;
+        std::vector<std::string> data1 = readFile(workingDir->dirs[index1]->first_blk);
+        int appendSize = workingDir->dirs[index1]->size;
+        workingDir = tempDir;
+        workingDirAsString = dirString;
+        fileName = goToPath(filepath2);
+        std::vector<std::string> data2 = readFile(workingDir->dirs[index2]->first_blk);
+        std::string newData;
+        for (int i = 0; i < data2.size(); i++)
+        {
+            newData.append(data2.at(i));
+        }
+        for (int i = 0; i < data1.size(); i++)
+        {
+            newData.append(data1.at(i));
+        }
+        
+        std::cout << newData;
+        int iterator2 = workingDir->dirs[index2]->first_blk;
 
-        while (iterator2 != EOF)
-        {
-            //Only increment appendIndex if we're not at EOF, so that we can start append other files FAT-indexes.
-            if (iterator2 != EOF)
-            {
-                appendIndex = iterator2;
-            }
-            iterator2 = fat[iterator2];
-        }
-        disk.read(appendIndex, (uint8_t *)buffer);
-        line.append(buffer);
-        while (iterator1 != EOF)
-        {
-            disk.read(iterator1, (uint8_t *)buffer);
-            line.append(buffer);
-            iterator1 = fat[iterator1];
-        }
+        // std::string line;
+        // char *buffer = new char[BLOCK_SIZE];
+        // // int iterator1 = entries[index1].first_blk;
+        // // int iterator2 = entries[index2].first_blk;
+        // int iterator1;
+        // int iterator2;
 
-        uint32_t noBlocks = (line.length() / BLOCK_SIZE) + 1;
-        uint32_t lastBlock = (line.length() % BLOCK_SIZE);
-        std::vector<std::string> data;
-        for (int i = 0; i < noBlocks; ++i)
-        {
-            if (i == noBlocks - 1)
-            {
-                data.push_back(line.substr((i * BLOCK_SIZE), lastBlock));
-            }
-            else
-            {
-                data.push_back(line.substr((i * BLOCK_SIZE), BLOCK_SIZE));
-            }
-        }
-        disk.write(appendIndex, (uint8_t *)data[0].c_str());
-        data.erase(data.begin());
+        // while (iterator2 != EOF)
+        // {
+        //     //Only increment appendIndex if we're not at EOF, so that we can start append other files FAT-indexes.
+        //     if (iterator2 != EOF)
+        //     {
+        //         appendIndex = iterator2;
+        //     }
+        //     iterator2 = fat[iterator2];
+        // }
+        // disk.read(appendIndex, (uint8_t *)buffer);
+        // line.append(buffer);
+        // while (iterator1 != EOF)
+        // {
+        //     disk.read(iterator1, (uint8_t *)buffer);
+        //     line.append(buffer);
+        //     iterator1 = fat[iterator1];
+        // }
 
-        // entries[index2].size += entries[index1].size;
-        int count = 0;
-        int previous = -1;
-        int i = ROOT_BLOCK + 2;
-        bool inserted = false;
-        if (data.size() > 0)
-        {
-            for (int j = 0; j < data.size(); ++j)
-            {
-                for (i; i < (BLOCK_SIZE / 2) && !inserted; ++i)
-                {
-                    if (fat[i] == FAT_FREE)
-                    {
-                        if (fat[appendIndex] == EOF)
-                        {
-                            fat[appendIndex] = i;
-                        }
-                        if (previous != -1)
-                        {
-                            fat[previous] = i;
-                        }
-                        inserted = true;
-                        fat[i] = EOF;
-                        previous = i;
-                        i--;
-                    }
-                }
-                inserted = false;
-                disk.write(i, (uint8_t *)data[j].c_str());
-            }
-        }
+        // uint32_t noBlocks = (line.length() / BLOCK_SIZE) + 1;
+        // uint32_t lastBlock = (line.length() % BLOCK_SIZE);
+        // std::vector<std::string> data;
+        // for (int i = 0; i < noBlocks; ++i)
+        // {
+        //     if (i == noBlocks - 1)
+        //     {
+        //         data.push_back(line.substr((i * BLOCK_SIZE), lastBlock));
+        //     }
+        //     else
+        //     {
+        //         data.push_back(line.substr((i * BLOCK_SIZE), BLOCK_SIZE));
+        //     }
+        // }
+        // disk.write(appendIndex, (uint8_t *)data[0].c_str());
+        // data.erase(data.begin());
+
+        // // entries[index2].size += entries[index1].size;
+        // int count = 0;
+        // int previous = -1;
+        // int i = ROOT_BLOCK + 2;
+        // bool inserted = false;
+        // if (data.size() > 0)
+        // {
+        //     for (int j = 0; j < data.size(); ++j)
+        //     {
+        //         for (i; i < (BLOCK_SIZE / 2) && !inserted; ++i)
+        //         {
+        //             if (fat[i] == FAT_FREE)
+        //             {
+        //                 if (fat[appendIndex] == EOF)
+        //                 {
+        //                     fat[appendIndex] = i;
+        //                 }
+        //                 if (previous != -1)
+        //                 {
+        //                     fat[previous] = i;
+        //                 }
+        //                 inserted = true;
+        //                 fat[i] = EOF;
+        //                 previous = i;
+        //                 i--;
+        //             }
+        //         }
+        //         inserted = false;
+        //         disk.write(i, (uint8_t *)data[j].c_str());
+        //     }
+        // }
     }
     else
     {
@@ -594,7 +640,8 @@ int FS::append(std::string filepath1, std::string filepath2)
             std::cout << "'" << filepath2 << "' does not exist!" << std::endl;
         }
     }
-
+    workingDirAsString = dirString;
+    workingDir = tempDir;
     return 0;
 }
 
@@ -626,7 +673,7 @@ int FS::mkdir(std::string dirpath)
     bool found = false;
     int index = fileExists(dirName, TYPE_DIR);
 
-    if(dirName == "~" || dirName.empty())
+    if (dirName == "~" || dirName.empty())
     {
         std::cout << dirName << ": Reserved name, aborting!" << std::endl;
     }
@@ -649,7 +696,7 @@ int FS::mkdir(std::string dirpath)
         catalogs[nrOfDirs++] = newDir;
         workingDir->nrOfSubDir++;
     }
-    
+
     workingDir = dirTemp;
     workingDirAsString = dirString;
     return 0;
