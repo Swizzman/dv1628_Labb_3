@@ -13,6 +13,12 @@
 #define FAT_FREE 0
 #define FAT_EOF -1
 
+// Defines for directories used in the array 'catalogs' and struct array 'dirs'.
+// catalogs[ROOT] is a reference to root root can contain sub-directories 
+// and files which is specified in 'dirs'.
+// Example: catalogs[ROOT].dirs[ITSELF] is a reference to itself and 
+// catalogs[ROOT].dirs[PARENT] is it parent which is also itself (edge case).
+// Rest of the indexes is it's sub-directories and it's containing files.
 #define MAX_DIRECTORIES 64
 #define ROOT_DIR 0
 #define ITSELF 0
@@ -26,6 +32,9 @@
 
 #define PARENT_DIR ".."
 
+#define NOT_FOUND -1
+#define DIRECTORY -2
+
 struct dir_entry
 {
     char file_name[56];    // name of the file / sub-directory
@@ -35,10 +44,11 @@ struct dir_entry
     uint8_t access_rights; // read (0x04), write (0x02), execute (0x01)
 };
 
+// Struct that contains all entries of files and directories, initializing nrOfSubDir to 2
+// simply because every directory has a reference to itself and its parent.
 struct dir_helper
 {
     dir_entry* dirs[MAX_DIRECTORIES];
-    //std::pair<int8_t, std::string> subDir[10]{std::make_pair(-1, "")};
     uint16_t nrOfSubDir = 2;
 };
 
@@ -57,11 +67,20 @@ private:
 
     void expand();
     void updateFat();
+    // Checks if the file exists or not, returns the index where it belongs to in the catalogs
     int fileExists(std::string filename, uint8_t type) const;
+    // Writes the directory's meta data to disk
     void writeDir(dir_helper* catalog);
+    // Writes the file's data blocks to disk and updates FAT table
     void writeFile(int blocksToWrite, std::vector<std::string> &data);
+    void appendFile(int blocksToWrite, std::vector<std::string> &data, int appendIndex);
     std::vector<std::string> readFile(int startBlock);
-    std::string goToPath(std::string newPath);
+    // Changes working directory to the path given and returns the last string after the last '/'
+    bool goToPath(std::string newPath);
+    std::string getNameOfPath(std::string pathName);
+    std::string decodeAccessRights(uint8_t accessRights);
+    void boot();
+    void bootHelper(int readBlock);
 
 public:
     FS();
