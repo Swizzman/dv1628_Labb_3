@@ -19,7 +19,7 @@
 // Example: catalogs[ROOT].dirs[ITSELF] is a reference to itself and 
 // catalogs[ROOT].dirs[PARENT] is it parent which is also itself (edge case).
 // Rest of the indexes is it's sub-directories and it's containing files.
-#define MAX_DIRECTORIES 64
+#define MAX_DIRECTORIES 58
 #define ROOT_DIR 0
 #define ITSELF 0
 #define PARENT 1
@@ -48,7 +48,7 @@ struct dir_entry
 // simply because every directory has a reference to itself and its parent.
 struct dir_helper
 {
-    dir_entry* dirs[MAX_DIRECTORIES];
+    dir_entry dirs[MAX_DIRECTORIES];
     uint16_t nrOfSubDir = 2;
 };
 
@@ -61,16 +61,13 @@ private:
     dir_helper *workingDir;
     dir_helper* catalogs;
     std::string workingDirAsString;
-    int nrOfEntries;
-    int capacity;
     int nrOfDirs;
 
-    void expand();
     void updateFat();
     // Checks if the file exists or not, returns the index where it belongs to in the catalogs
     int fileExists(std::string filename, uint8_t type) const;
     // Writes the directory's meta data to disk
-    void writeDir(dir_helper* catalog);
+    void writeDir(dir_helper &catalog);
     // Writes the file's data blocks to disk and updates FAT table
     void writeFile(int blocksToWrite, std::vector<std::string> &data);
     void appendFile(int blocksToWrite, std::vector<std::string> &data, int appendIndex);
@@ -81,6 +78,7 @@ private:
     std::string decodeAccessRights(uint8_t accessRights);
     void boot();
     void bootHelper(int readBlock);
+    void updateFolder(dir_helper &catalog);
 
 public:
     FS();
