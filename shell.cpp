@@ -30,13 +30,10 @@ void Shell::run()
     char c;
     std::vector<std::string> cmd_line;
     std::string cmd, arg1, arg2;
-    std::string currentDir;
     int ret_val = 0;
     while (running)
     {
-        currentDir = filesystem.getWorkingDirAsString();
-        //std::cout << "filesystem> ";
-        std::cout << currentDir << "$ ";
+        std::cout << "filesystem> ";
         std::getline(std::cin, line);
         std::stringstream linestream(line);
         cmd_line.clear();

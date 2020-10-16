@@ -29,6 +29,7 @@
 #define READ 0x04
 #define WRITE 0x02
 #define EXECUTE 0x01
+#define NONE 0
 
 #define PARENT_DIR ".."
 
@@ -63,22 +64,30 @@ private:
     std::string workingDirAsString;
     int nrOfDirs;
 
-    void updateFat();
-    // Checks if the file exists or not, returns the index where it belongs to in the catalogs
-    int fileExists(std::string filename, uint8_t type) const;
+    int dirExists(std::string dirName)const;
+    // Checks if the file/directory exists or not, returns the index where it belongs in the catalogs
+    int fileExists(std::string filename) const;
     // Writes the directory's meta data to disk
     void writeDir(dir_helper &catalog);
     // Writes the file's data blocks to disk and updates FAT table
     void writeFile(int blocksToWrite, std::vector<std::string> &data);
+    // Helper function to write data to disk and update the fat table
     void appendFile(int blocksToWrite, std::vector<std::string> &data, int appendIndex);
     std::vector<std::string> readFile(int startBlock);
     // Changes working directory to the path given and returns the last string after the last '/'
     bool goToPath(std::string newPath);
+    // Returns a string of the last path given in 'pathName'
     std::string getNameOfPath(std::string pathName);
+    // Decodes access rights
     std::string decodeAccessRights(uint8_t accessRights);
+
+    // Helper functions to read from disk and boot the program.
     void boot();
     void bootHelper(int readBlock);
+
+    // Updates information of files/folders to disk.
     void updateFolder(dir_helper &catalog);
+    void updateFat();
 
 public:
     FS();
