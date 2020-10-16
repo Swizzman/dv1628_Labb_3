@@ -86,7 +86,7 @@ int FS::fileExists(std::string filename) const
     int index = -1;
 
     for (int i = 2; i < workingDir->nrOfSubDir && !found; ++i)
-    { 
+    {
         //Check if the names match and the type is a file
         if (filename == workingDir->dirs[i].file_name && workingDir->dirs[i].type == TYPE_FILE)
         {
@@ -907,63 +907,24 @@ int FS::chmod(std::string accessrights, std::string filepath)
 
         if (index != NOT_FOUND)
         {
-            if (accessrights.size() == 1)
+            if (isdigit(accessrights[0]) != 0)
             {
-                char ar = accessrights[0];
-                switch (ar)
+                int digit = atoi(&accessrights[0]);
+                if (digit > -1 && digit < 8)
                 {
-                case '0':
+                    workingDir->dirs[index].access_rights = workingDir->dirs[index].access_rights ^ digit;
+                    updateFolder(*workingDir);
+                }
+                else
                 {
-                    workingDir->dirs[index].access_rights = NONE;
-                    break;
+                    std::cout << "Permission denied: Invalid input!" << std::endl;
                 }
-                case '1':
-                {
-                    workingDir->dirs[index].access_rights = EXECUTE;
-                    break;
-                }
-                case '2':
-                {
-                    workingDir->dirs[index].access_rights = WRITE;
-                    break;
-                }
-                case '3':
-                {
-                    workingDir->dirs[index].access_rights = EXECUTE | WRITE;
-                    break;
-                }
-                case '4':
-                {
-                    workingDir->dirs[index].access_rights = READ;
-                    break;
-                }
-                case '5':
-                {
-                    workingDir->dirs[index].access_rights = EXECUTE | READ;
-                    break;
-                }
-                case '6':
-                {
-                    workingDir->dirs[index].access_rights = READ | WRITE;
-                    break;
-                }
-                case '7':
-                {
-                    workingDir->dirs[index].access_rights = READ | WRITE | EXECUTE;
-                    break;
-                }
-                default:
-                {
-                    std::cout << accessrights << ": Wrong input!" << std::endl;
-                    break;
-                }
-                }
-                updateFolder(*workingDir);
             }
             else
             {
-                std::cout << "Wrong input!" << std::endl;
+                std::cout << "Usage: chmod <number> <file>" << std::endl;
             }
+            
         }
         else
         {
