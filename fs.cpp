@@ -34,6 +34,7 @@ void FS::boot()
     // First read the FAT table from disk
     disk.read(FAT_BLOCK, (uint8_t *)fat);
 
+
     // Second check if root is -1, this means we have already formatted the disk once, boot as normal.
     if (fat[ROOT_BLOCK] == EOF)
     {
@@ -41,7 +42,7 @@ void FS::boot()
         workingDir = &catalogs[ROOT_DIR];
         nrOfDirs++;
         workingDirAsString = "~";
-        
+
         for (int i = 2; i < catalogs[ROOT_DIR].nrOfSubDir; ++i)
         {
             // Recursive call to load in sub-folders from disk
