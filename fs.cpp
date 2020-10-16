@@ -41,6 +41,7 @@ void FS::boot()
         workingDir = &catalogs[ROOT_DIR];
         nrOfDirs++;
         workingDirAsString = "~";
+        
         for (int i = 2; i < catalogs[ROOT_DIR].nrOfSubDir; ++i)
         {
             // Recursive call to load in sub-folders from disk
@@ -519,7 +520,7 @@ int FS::ls()
                 }
             }
             //If no_Spaces is less than 0, we need to shrink the printed name and we add (..) to indicate that the name is larger
-            else 
+            else
             {
                 for (int j = 0; j < (TAB_SIZE * 3) - 4; j++)
                 {
@@ -854,6 +855,7 @@ void FS::writeDir(dir_helper &catalog)
     bool inserted = false;
     for (int i = ROOT_BLOCK + 2; i < (BLOCK_SIZE / 2) && !inserted; ++i)
     {
+        //We simply find a free block and write the struct to it
         if (fat[i] == FAT_FREE)
         {
             catalog.dirs[ITSELF].first_blk = i;
@@ -934,6 +936,7 @@ int FS::cd(std::string dirpath)
     }
     if (goToPath(dirpath) == false)
     {
+        //If we couldn't go to the path, reset the working
         resetWorkingDir();
     }
 
@@ -945,7 +948,7 @@ int FS::cd(std::string dirpath)
 int FS::pwd()
 {
     std::cout << "FS::pwd()\n";
-
+    //Since workingDirAsString is a variable for the entire class that changes during run-time, we can simply just print it
     std::cout << workingDirAsString << std::endl;
     return 0;
 }
