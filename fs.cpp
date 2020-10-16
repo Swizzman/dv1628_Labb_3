@@ -28,7 +28,7 @@ void FS::bootHelper(int readBlock)
 
 void FS::boot()
 {
-    catalogs = new dir_helper[MAX_DIRECTORIES];
+    catalogs = new dir_helper[BLOCK_SIZE];
     nrOfDirs = 0;
 
     // First read the FAT table from disk
@@ -70,6 +70,7 @@ int FS::dirExists(std::string dirName) const
 
     for (int i = 2; i < workingDir->nrOfSubDir && !found; ++i)
     {
+        //Check if the names match and the type is a directory
         if (dirName == workingDir->dirs[i].file_name && workingDir->dirs[i].type == TYPE_DIR)
         {
             index = i;
@@ -85,7 +86,8 @@ int FS::fileExists(std::string filename) const
     int index = -1;
 
     for (int i = 2; i < workingDir->nrOfSubDir && !found; ++i)
-    {
+    { 
+        //Check if the names match and the type is a file
         if (filename == workingDir->dirs[i].file_name && workingDir->dirs[i].type == TYPE_FILE)
         {
             index = i;
@@ -562,7 +564,8 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
             }
             else
             {
-                std::cout << "Permission denied: " << "You do not have permission to copy this file." << std::endl;
+                std::cout << "Permission denied: "
+                          << "You do not have permission to copy this file." << std::endl;
             }
         }
         else if (index == -1)
