@@ -30,15 +30,15 @@
 #define WRITE 0x02
 #define EXECUTE 0x01
 #define NONE 0
-
+#define MAX_NAME_SIZE 56
 #define PARENT_DIR ".."
-
+#define TAB_SIZE 8
 #define NOT_FOUND -1
 #define DIRECTORY -2
 
 struct dir_entry
 {
-    char file_name[56];    // name of the file / sub-directory
+    char file_name[MAX_NAME_SIZE];    // name of the file / sub-directory
     uint16_t first_blk;    // index in the FAT for the first block of the file
     uint32_t size;         // size of the file in bytes
     uint8_t type;          // directory (1) or file (0)
@@ -60,6 +60,8 @@ private:
     // size of a FAT entry is 2 bytes
     int16_t fat[BLOCK_SIZE / 2];
     dir_helper *workingDir;
+    dir_helper *workingDirPrevious;
+    std::string stringWorkingDirPrevious;
     dir_helper* catalogs;
     std::string workingDirAsString;
     int nrOfDirs;
@@ -80,7 +82,9 @@ private:
     std::string getNameOfPath(std::string pathName);
     // Decodes access rights
     std::string decodeAccessRights(uint8_t accessRights);
-
+    //Helper functions to save working dir so we can return to it later
+    void saveWorkingDir();
+    void resetWorkingDir();
     // Helper functions to read from disk and boot the program.
     void boot();
     void bootHelper(int readBlock);

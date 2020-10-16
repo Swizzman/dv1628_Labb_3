@@ -28,7 +28,7 @@ void FS::bootHelper(int readBlock)
 
 void FS::boot()
 {
-    catalogs = new dir_helper[BLOCK_SIZE];
+    catalogs = new dir_helper[BLOCK_SIZE / 2];
     nrOfDirs = 0;
 
     // First read the FAT table from disk
@@ -56,6 +56,17 @@ void FS::boot()
         std::cout << "First time booting, formatting drive..." << std::endl;
         format();
     }
+}
+
+void FS::saveWorkingDir()
+{
+    workingDirPrevious = workingDir;
+    stringWorkingDirPrevious = workingDirAsString;
+}
+void FS::resetWorkingDir()
+{
+    workingDir = workingDirPrevious;
+    workingDirAsString = stringWorkingDirPrevious;
 }
 
 void FS::updateFat()
@@ -193,35 +204,45 @@ bool FS::goToPath(std::string newPath)
 
     for (int i = 0; i < newPath.size() && validPath; ++i)
     {
-        if (newPath[i] != '/')
+        if (newPath[i] != '/') //if the current char is / we know we have reached the end of this directory name
         {
             paths += newPath[i];
         }
         else
         {
-            if ((paths == "~") || (paths.empty() && i == 0))
+            if (paths == ".") // If we have . we go to itself
+            {
+                paths.clear();
+                found = true;
+            }
+            else if ((paths == "~") || (paths.empty() && i == 0)) //If we start / or have a ~ as the name, we need to go to root instead
             {
                 workingDir = &catalogs[ROOT_DIR];
                 workingDirAsString = "~";
                 paths.clear();
-                continue;
+                found = true;
             }
-            else if (paths == "..")
+            else if (paths == "..") // If the user typed ".." that is translated to the parent name
             {
                 paths = workingDir->dirs[PARENT].file_name;
             }
-            for (int j = 1; j < workingDir->nrOfSubDir && !found; ++j)
+            for (int j = 1; j < workingDir->nrOfSubDir && !found; ++j) // loop through all sub-directories including parent
             {
                 if (paths == workingDir->dirs[j].file_name)
                 {
+                    //If the workingdir has a subdir with the correct name
+                    //find it in the array of all directories
                     for (int k = 0; k < nrOfDirs && !found; ++k)
                     {
                         if (paths == catalogs[k].dirs[ITSELF].file_name)
                         {
+                            //When the directory is found, we need to increase the workingDirAsString with a '/'
+                            //and the new name, as long as it isn't the parent
                             if (paths != workingDir->dirs[PARENT].file_name)
                             {
                                 workingDirAsString.append("/" + paths);
                             }
+                            //If the name is the parent and the name isn't 1 character long, we need to erase the current name plus the previous /
                             else if (workingDirAsString.size() > 1)
                             {
                                 workingDirAsString.erase(workingDirAsString.size() - strlen(workingDir->dirs[ITSELF].file_name) - 1,
@@ -229,6 +250,7 @@ bool FS::goToPath(std::string newPath)
                             }
                             else
                             {
+                                //This is an edge case if we are attempting to go back to root (as long as we aren't on root already)
                                 if (k > 0)
                                 {
                                     workingDirAsString.erase(workingDirAsString.size() - 1, 2);
@@ -264,10 +286,11 @@ int FS::format()
     }
     fat[FAT_BLOCK] = EOF;
 
-    catalogs = new dir_helper[MAX_DIRECTORIES];
+    //We don't actually need to clear the disk. If we mark fat as free we can overwrite it later
+    catalogs = new dir_helper[BLOCK_SIZE / 2];
     nrOfDirs = 0;
 
-    //Creating metadata for Root-directory
+    //Recreate the root directory and write it to the disk
     strcpy(catalogs[nrOfDirs].dirs[ITSELF].file_name, "~");
     catalogs[ROOT_DIR].dirs[ITSELF].first_blk = ROOT_BLOCK;
     catalogs[ROOT_DIR].dirs[ITSELF].size = BLOCK_SIZE;
@@ -293,79 +316,86 @@ int FS::create(std::string filepath)
 
     std::string data, diskData;
     bool done = false;
-    dir_helper *tempDir = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
     if ((goToPath(filepath)) == true)
     {
         std::string fileName = getNameOfPath(filepath);
         int index = fileExists(fileName);
+        if (workingDir->nrOfSubDir < MAX_DIRECTORIES && fileName.size() < MAX_NAME_SIZE)
+        {
 
-        // User shouldn't be able to create a file with same name as root
-        if (fileName == "~" || fileName.empty())
-        {
-            std::cout << fileName << ": Reserved name, aborting!" << std::endl;
-        }
-        else if (index > -1)
-        {
-            std::cout << fileName << ": Already exists!" << std::endl;
-        }
-        else
-        {
-            while (!done)
+            // User shouldn't be able to create a file with same name as root anywhere in the system
+            if (fileName == "~" || fileName.empty())
             {
-                std::getline(std::cin, data);
-                if (data.empty())
-                {
-                    done = true;
-                }
-                else
-                {
-                    data += '\n';
-                    diskData.append(data);
-                }
+                std::cout << fileName << ": Reserved name, aborting!" << std::endl;
             }
-
-            if (diskData.size() == 0)
+            else if (index > -1)
             {
-                std::cout << "No data entered." << std::endl;
+                std::cout << fileName << ": Already exists!" << std::endl;
             }
             else
             {
-                uint16_t noBlocks = (diskData.length() / BLOCK_SIZE) + 1;
-
-                dir_entry *newEntry = new dir_entry;
-                strcpy(newEntry->file_name, fileName.c_str());
-                newEntry->type = TYPE_FILE;
-                newEntry->first_blk = FAT_FREE;
-                newEntry->size = diskData.length();
-                newEntry->access_rights = workingDir->dirs[ITSELF].access_rights;
-
-                std::vector<std::string> dataVec;
-                uint16_t bytesLeft = diskData.size() % BLOCK_SIZE;
-
-                for (int k = 0; k < noBlocks; ++k)
+                while (!done)
                 {
-                    if (k == noBlocks - 1)
+                    std::getline(std::cin, data);
+                    if (data.empty())
                     {
-                        dataVec.push_back(diskData.substr((k * BLOCK_SIZE), bytesLeft));
+                        done = true;
                     }
                     else
                     {
-                        dataVec.push_back(diskData.substr((k * BLOCK_SIZE), BLOCK_SIZE));
+                        data += '\n';
+                        diskData.append(data);
                     }
                 }
 
-                workingDir->dirs[workingDir->nrOfSubDir] = *newEntry;
-                writeFile(noBlocks, dataVec);
-                workingDir->nrOfSubDir++;
+                if (diskData.size() == 0)
+                {
+                    std::cout << "No data entered." << std::endl;
+                }
+                else
+                {
 
-                updateFat();
-                updateFolder(*workingDir);
+                    uint16_t noBlocks = (diskData.length() / BLOCK_SIZE) + 1;
+                    //Create a new struct inside the current working dir sub-directories
+                    dir_entry *newEntry = new dir_entry;
+                    strcpy(newEntry->file_name, fileName.c_str());
+                    newEntry->type = TYPE_FILE;
+                    newEntry->first_blk = FAT_FREE;
+                    newEntry->size = diskData.length();
+                    newEntry->access_rights = workingDir->dirs[ITSELF].access_rights;
+
+                    std::vector<std::string> dataVec;
+                    uint16_t bytesLeft = diskData.size() % BLOCK_SIZE;
+                    //Split up the data input from the user into substrings. Each index in the vector
+                    //Corresponds to a block(which means their size is BLOCK_SIZE)
+                    for (int k = 0; k < noBlocks; ++k)
+                    {
+                        if (k == noBlocks - 1 && bytesLeft != 0) // The last block is not necesserily BLOCK_SIZE large, so a special case is needed
+                        {
+                            dataVec.push_back(diskData.substr((k * BLOCK_SIZE), bytesLeft));
+                        }
+                        else
+                        {
+                            dataVec.push_back(diskData.substr((k * BLOCK_SIZE), BLOCK_SIZE));
+                        }
+                    }
+
+                    workingDir->dirs[workingDir->nrOfSubDir] = *newEntry;
+                    writeFile(noBlocks, dataVec);
+                    workingDir->nrOfSubDir++;
+
+                    updateFat();
+                    updateFolder(*workingDir);
+                }
             }
         }
+        else
+        {
+            std::cout << "Permission denied: Limit reached\n";
+        }
     }
-    workingDir = tempDir;
-    workingDirAsString = dirString;
+    resetWorkingDir();
     return 0;
 }
 
@@ -373,8 +403,7 @@ int FS::create(std::string filepath)
 int FS::cat(std::string filepath)
 {
     std::cout << "FS::cat(" << filepath << ")\n";
-    dir_helper *tempDir = workingDir;
-    std::string stringDir = workingDirAsString;
+    saveWorkingDir();
     std::string fileName = getNameOfPath(filepath);
     if (goToPath(filepath) == true)
     {
@@ -399,8 +428,7 @@ int FS::cat(std::string filepath)
             std::cout << fileName << ": No such file!" << std::endl;
         }
     }
-    workingDir = tempDir;
-    workingDirAsString = stringDir;
+    resetWorkingDir();
     return 0;
 }
 
@@ -408,48 +436,49 @@ std::string FS::decodeAccessRights(uint8_t accessRights)
 {
     std::string decoded;
 
+    //Since accessrights is a uint8_t between 1 and 7, we can simply check each possible scenario with a
+    //switch case and change the 'decoded'
     switch (accessRights)
     {
     case 1:
-    {
+
         decoded = "--x";
         break;
-    }
+
     case 2:
-    {
+
         decoded = "-w-";
         break;
-    }
+
     case 3:
-    {
+
         decoded = "-wx";
         break;
-    }
+
     case 4:
-    {
+
         decoded = "r--";
         break;
-    }
+
     case 5:
-    {
+
         decoded = "r-x";
         break;
-    }
+
     case 6:
-    {
+
         decoded = "rw-";
         break;
-    }
+
     case 7:
-    {
+
         decoded = "rwx";
         break;
-    }
+
     default:
-    {
+
         decoded = "---";
         break;
-    }
     }
 
     return decoded;
@@ -464,6 +493,8 @@ int FS::ls()
 
     for (int i = 0; i < workingDir->nrOfSubDir; ++i)
     {
+        //The first 2 ifs are special cases so it prints out "." and ".."
+        //indicating itself and parent respectively
         if (i == ITSELF)
         {
             std::cout << "."
@@ -476,9 +507,29 @@ int FS::ls()
         }
         else
         {
-            std::cout << workingDir->dirs[i].file_name << "\t\t\t";
+            //One /t is about 8 spaces so we calculate how many spaces we need to enter
+            int no_Spaces = TAB_SIZE * 3 - strlen(workingDir->dirs[i].file_name);
+            //If no_Spaces is larger than 0, it means that we have to manually enter spaces
+            if (no_Spaces > 0)
+            {
+                std::cout << workingDir->dirs[i].file_name;
+                for (int j = 0; j < no_Spaces; j++)
+                {
+                    std::cout << " ";
+                }
+            }
+            //If no_Spaces is less than 0, we need to shrink the printed name and we add (..) to indicate that the name is larger
+            else 
+            {
+                for (int j = 0; j < (TAB_SIZE * 3) - 4; j++)
+                {
+                    std::cout << workingDir->dirs[i].file_name[j];
+                }
+                std::cout << "(..)";
+            }
         }
 
+        //This if-else statement translates the type to directory or file for printing
         if (workingDir->dirs[i].type == TYPE_FILE)
         {
             std::cout << "File\t\t";
@@ -492,12 +543,15 @@ int FS::ls()
     }
     return 0;
 }
-
+//Helper function to read a file
 std::vector<std::string> FS::readFile(int startBlock)
 {
     int iterator = startBlock;
     char *buffer;
     std::vector<std::string> data;
+    //Simply keep reading until we reach the end of the datablocks
+    //Each iteration we read the current block and then navigate towards the next block in the fat-table
+    //Pushing to a final vector each time
     while (iterator != EOF)
     {
         buffer = new char[BLOCK_SIZE];
@@ -514,8 +568,8 @@ std::vector<std::string> FS::readFile(int startBlock)
 int FS::cp(std::string sourcefilepath, std::string destfilepath)
 {
     std::cout << "FS::cp(" << sourcefilepath << "," << destfilepath << ")\n";
-    dir_helper *tempDir = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
+
     std::string fileName = getNameOfPath(sourcefilepath);
     if (goToPath(sourcefilepath) == true)
     {
@@ -526,8 +580,10 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
         }
         if (index > -1)
         {
+            //If we have access, we need to create a new identical copy
             if (decodeAccessRights(workingDir->dirs[index].access_rights).at(0) == 'r')
             {
+
                 dir_entry *copyEntry = new dir_entry;
                 strcpy(copyEntry->file_name, fileName.c_str());
                 copyEntry->access_rights = workingDir->dirs[index].access_rights;
@@ -538,12 +594,13 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
                 int noBlocks = (workingDir->dirs[index].size / BLOCK_SIZE) + 1;
                 std::vector<std::string> data = readFile(workingDir->dirs[index].first_blk);
 
-                workingDirAsString = dirString;
-                workingDir = tempDir;
+                resetWorkingDir();
+
                 if (destfilepath[destfilepath.size() - 1] != '/')
                 {
                     destfilepath.append("/");
                 }
+                //Now that we have a struct to insert, we navigate to the destination
                 if (goToPath(destfilepath) == true)
                 {
                     index = fileExists(fileName);
@@ -561,6 +618,11 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
                         std::cout << "Permission denied: " << fileName << " already exist!" << std::endl;
                     }
                 }
+                else
+                {
+                    //If we couldn't add the copy it is simply deleted to avoid memory leaks
+                    delete copyEntry;
+                }
             }
             else
             {
@@ -573,8 +635,7 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
             std::cout << "Permission denied: " << fileName << " doesn't exist!" << std::endl;
         }
     }
-    workingDirAsString = dirString;
-    workingDir = tempDir;
+    resetWorkingDir();
     return 0;
 }
 
@@ -583,8 +644,7 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
 int FS::mv(std::string sourcepath, std::string destpath)
 {
     std::cout << "FS::mv(" << sourcepath << "," << destpath << ")\n";
-    dir_helper *tempDir = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
     std::string fileName = getNameOfPath(sourcepath);
     if (goToPath(sourcepath) == true)
     {
@@ -599,8 +659,7 @@ int FS::mv(std::string sourcepath, std::string destpath)
         else
         {
             dir_entry temp = workingDir->dirs[index];
-            workingDirAsString = dirString;
-            workingDir = tempDir;
+            resetWorkingDir();
             fileName = getNameOfPath(destpath);
             if (destpath == "/")
             {
@@ -636,8 +695,7 @@ int FS::mv(std::string sourcepath, std::string destpath)
             updateFolder(*tempDir2);
         }
     }
-    workingDirAsString = dirString;
-    workingDir = tempDir;
+    resetWorkingDir();
     return 0;
 }
 
@@ -645,9 +703,7 @@ int FS::mv(std::string sourcepath, std::string destpath)
 int FS::rm(std::string filepath)
 {
     std::cout << "FS::rm(" << filepath << ")\n";
-
-    dir_helper *tempDir = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
     std::string fileName = getNameOfPath(filepath);
     if (goToPath(filepath) == true)
     {
@@ -669,6 +725,7 @@ int FS::rm(std::string filepath)
             }
 
             fat[iterator] = FAT_FREE;
+            //we need to move everything in the array, starting at the index of the removed file
             for (int i = index; i < workingDir->nrOfSubDir; ++i)
             {
                 workingDir->dirs[i] = workingDir->dirs[i + 1];
@@ -679,8 +736,7 @@ int FS::rm(std::string filepath)
             updateFolder(*workingDir);
         }
     }
-    workingDirAsString = dirString;
-    workingDir = tempDir;
+    resetWorkingDir();
     return 0;
 }
 
@@ -689,16 +745,16 @@ int FS::rm(std::string filepath)
 int FS::append(std::string filepath1, std::string filepath2)
 {
     std::cout << "FS::append(" << filepath1 << "," << filepath2 << ")\n";
-    dir_helper *tempDir = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
+
     std::string fileName = getNameOfPath(filepath2);
     if (goToPath(filepath2) == true)
     {
         int index2 = fileExists(fileName);
         if (decodeAccessRights(workingDir->dirs[index2].access_rights).at(1) == 'w')
         {
-            workingDir = tempDir;
-            workingDirAsString = dirString;
+            resetWorkingDir();
+
             fileName = getNameOfPath(filepath1);
             if (goToPath(filepath1) == true)
             {
@@ -716,8 +772,7 @@ int FS::append(std::string filepath1, std::string filepath2)
                         {
                             tempData.append(file[i]);
                         }
-                        workingDir = tempDir;
-                        workingDirAsString = dirString;
+                        resetWorkingDir();
                         if (goToPath(filepath2) == true)
                         {
                             fileName = getNameOfPath(filepath2);
@@ -763,6 +818,7 @@ int FS::append(std::string filepath1, std::string filepath2)
                     }
                     else
                     {
+                        //If one or both of the files don't exist, we print out different errors to indicate the problem
                         if (index1 == NOT_FOUND && index2 == NOT_FOUND)
                         {
                             std::cout << "'" << filepath1 << "' and '" << filepath2 << "' does not exist!" << std::endl;
@@ -789,8 +845,7 @@ int FS::append(std::string filepath1, std::string filepath2)
                       << "'" << filepath2 << "' do not have write access!" << std::endl;
         }
     }
-    workingDirAsString = dirString;
-    workingDir = tempDir;
+    resetWorkingDir();
     return 0;
 }
 
@@ -819,8 +874,8 @@ void FS::updateFolder(dir_helper &catalog)
 int FS::mkdir(std::string dirpath)
 {
     std::cout << "FS::mkdir(" << dirpath << ")\n";
-    dir_helper *dirTemp = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
+
     std::string dirName = getNameOfPath(dirpath);
 
     if (goToPath(dirpath) == true)
@@ -838,25 +893,32 @@ int FS::mkdir(std::string dirpath)
         }
         else
         {
-            // Creating new meta-data for directory.
-            dir_helper newDir;
-            strcpy(newDir.dirs[ITSELF].file_name, dirName.c_str());
-            newDir.dirs[ITSELF].size = BLOCK_SIZE;
-            newDir.dirs[ITSELF].access_rights = workingDir->dirs[ITSELF].access_rights;
-            newDir.dirs[ITSELF].type = TYPE_DIR;
-            newDir.dirs[PARENT] = workingDir->dirs[ITSELF];
-            writeDir(newDir);
+            if (workingDir->nrOfSubDir < MAX_DIRECTORIES && dirName.size() < MAX_NAME_SIZE)
+            {
+                // Creating new meta-data for directory.
+                dir_helper newDir;
+                strcpy(newDir.dirs[ITSELF].file_name, dirName.c_str());
+                newDir.dirs[ITSELF].size = BLOCK_SIZE;
+                newDir.dirs[ITSELF].access_rights = workingDir->dirs[ITSELF].access_rights;
+                newDir.dirs[ITSELF].type = TYPE_DIR;
+                newDir.dirs[PARENT] = workingDir->dirs[ITSELF];
 
-            // Working directory receives a reference to the new sub-directory
-            workingDir->dirs[workingDir->nrOfSubDir] = newDir.dirs[ITSELF];
-            catalogs[nrOfDirs++] = newDir;
-            workingDir->nrOfSubDir++;
-            updateFolder(*workingDir);
-            updateFat();
+                writeDir(newDir);
+
+                // Working directory receives a reference to the new sub-directory
+                workingDir->dirs[workingDir->nrOfSubDir] = newDir.dirs[ITSELF];
+                catalogs[nrOfDirs++] = newDir;
+                workingDir->nrOfSubDir++;
+                updateFolder(*workingDir);
+                updateFat();
+            }
+            else
+            {
+                std::cout << "Permission denied: Limit reached\n";
+            }
         }
     }
-    workingDir = dirTemp;
-    workingDirAsString = dirString;
+    resetWorkingDir();
     return 0;
 }
 
@@ -864,8 +926,7 @@ int FS::mkdir(std::string dirpath)
 int FS::cd(std::string dirpath)
 {
     std::cout << "FS::cd(" << dirpath << ")\n";
-    dir_helper *temp = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
 
     if (dirpath[dirpath.size() - 1] != '/')
     {
@@ -873,8 +934,7 @@ int FS::cd(std::string dirpath)
     }
     if (goToPath(dirpath) == false)
     {
-        workingDir = temp;
-        workingDirAsString = dirString;
+        resetWorkingDir();
     }
 
     return 0;
@@ -895,9 +955,7 @@ int FS::pwd()
 int FS::chmod(std::string accessrights, std::string filepath)
 {
     std::cout << "FS::chmod(" << accessrights << "," << filepath << ")\n";
-
-    dir_helper *tempDir = workingDir;
-    std::string dirString = workingDirAsString;
+    saveWorkingDir();
 
     if (goToPath(filepath) == true)
     {
@@ -907,11 +965,13 @@ int FS::chmod(std::string accessrights, std::string filepath)
 
         if (index != NOT_FOUND)
         {
+            //Check if the character is a digit
             if (isdigit(accessrights[0]) != 0)
             {
                 int digit = atoi(&accessrights[0]);
                 if (digit > -1 && digit < 8)
                 {
+                    //If the character is a digit, perfom XOR operation to change the relevant rights
                     workingDir->dirs[index].access_rights = workingDir->dirs[index].access_rights ^ digit;
                     updateFolder(*workingDir);
                 }
@@ -924,15 +984,12 @@ int FS::chmod(std::string accessrights, std::string filepath)
             {
                 std::cout << "Usage: chmod <number> <file>" << std::endl;
             }
-            
         }
         else
         {
             std::cout << filepath << ": No such file or directory!" << std::endl;
         }
     }
-    workingDirAsString = dirString;
-    workingDir = tempDir;
-
+    resetWorkingDir();
     return 0;
 }
