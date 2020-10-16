@@ -585,12 +585,12 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
             if (decodeAccessRights(workingDir->dirs[index].access_rights).at(0) == 'r')
             {
 
-                dir_entry *copyEntry = new dir_entry;
-                strcpy(copyEntry->file_name, fileName.c_str());
-                copyEntry->access_rights = workingDir->dirs[index].access_rights;
-                copyEntry->size = workingDir->dirs[index].size;
-                copyEntry->type = workingDir->dirs[index].type;
-                copyEntry->first_blk = FAT_FREE;
+                dir_entry copyEntry;
+                strcpy(copyEntry.file_name, fileName.c_str());
+                copyEntry.access_rights = workingDir->dirs[index].access_rights;
+                copyEntry.size = workingDir->dirs[index].size;
+                copyEntry.type = workingDir->dirs[index].type;
+                copyEntry.first_blk = FAT_FREE;
 
                 int noBlocks = (workingDir->dirs[index].size / BLOCK_SIZE) + 1;
                 std::vector<std::string> data = readFile(workingDir->dirs[index].first_blk);
@@ -607,7 +607,7 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
                     index = fileExists(fileName);
                     if (index == -1)
                     {
-                        workingDir->dirs[workingDir->nrOfSubDir] = *copyEntry;
+                        workingDir->dirs[workingDir->nrOfSubDir] = copyEntry;
 
                         writeFile(noBlocks, data);
                         workingDir->nrOfSubDir++;
@@ -622,7 +622,6 @@ int FS::cp(std::string sourcefilepath, std::string destfilepath)
                 else
                 {
                     //If we couldn't add the copy it is simply deleted to avoid memory leaks
-                    delete copyEntry;
                 }
             }
             else
